@@ -58,24 +58,26 @@ public class VideoController extends PieController
 
         addItem(CameraSettings.KEY_VIDEOCAMERA_FLASH_MODE, FLOAT_PI_DIVIDED_BY_TWO - sweep, sweep);
         addItem(CameraSettings.KEY_WHITE_BALANCE, 3 * FLOAT_PI_DIVIDED_BY_TWO + sweep, sweep);
-        PieItem item = makeItem(R.drawable.ic_switch_video_facing_holo_light);
-        item.setFixedSlice(FLOAT_PI_DIVIDED_BY_TWO + sweep,  sweep);
-        item.setOnClickListener(new OnClickListener() {
+        if (group.findPreference(CameraSettings.KEY_CAMERA_ID) != null) {
+            PieItem item = makeItem(R.drawable.ic_switch_video_facing_holo_light);
+            item.setFixedSlice(FLOAT_PI_DIVIDED_BY_TWO + sweep,  sweep);
+            item.setOnClickListener(new OnClickListener() {
 
-            @Override
-            public void onClick(PieItem item) {
-                // Find the index of next camera.
-                ListPreference pref = mPreferenceGroup.findPreference(CameraSettings.KEY_CAMERA_ID);
-                if (pref != null) {
-                    int index = pref.findIndexOfValue(pref.getValue());
-                    CharSequence[] values = pref.getEntryValues();
-                    index = (index + 1) % values.length;
-                    int newCameraId = Integer.parseInt((String) values[index]);
-                    mListener.onCameraPickerClicked(newCameraId);
+                @Override
+                public void onClick(PieItem item) {
+                    // Find the index of next camera.
+                    ListPreference pref = mPreferenceGroup.findPreference(CameraSettings.KEY_CAMERA_ID);
+                    if (pref != null) {
+                        int index = pref.findIndexOfValue(pref.getValue());
+                        CharSequence[] values = pref.getEntryValues();
+                        index = (index + 1) % values.length;
+                        int newCameraId = Integer.parseInt((String) values[index]);
+                        mListener.onCameraPickerClicked(newCameraId);
+                    }
                 }
-            }
-        });
-        mRenderer.addItem(item);
+            });
+            mRenderer.addItem(item);
+        }
         mOtherKeys = new String[] {
                 CameraSettings.KEY_VIDEO_EFFECT,
                 CameraSettings.KEY_VIDEO_TIME_LAPSE_FRAME_INTERVAL,
@@ -84,7 +86,7 @@ public class VideoController extends PieController
                 CameraSettings.KEY_POWER_SHUTTER,
                 CameraSettings.KEY_COLOR_EFFECT};
 
-        item = makeItem(R.drawable.ic_settings_holo_light);
+        PieItem item = makeItem(R.drawable.ic_settings_holo_light);
         item.setFixedSlice(FLOAT_PI_DIVIDED_BY_TWO * 3, sweep);
         item.setOnClickListener(new OnClickListener() {
             @Override
@@ -141,13 +143,17 @@ public class VideoController extends PieController
                 R.layout.more_setting_popup, null, false);
         popup.setSettingChangedListener(this);
         popup.initialize(mPreferenceGroup, mOtherKeys);
+        if (mActivity.isSecureCamera()) {
+            // Prevent location preference from getting changed in secure camera mode
+            popup.setPreferenceEnabled(CameraSettings.KEY_RECORD_LOCATION, false);
+        }
         mPopup = popup;
     }
 
     public void popupDismissed(boolean topPopupOnly) {
+        initializePopup();
         // if the 2nd level popup gets dismissed
         if (mPopupStatus == POPUP_SECOND_LEVEL) {
-            initializePopup();
             mPopupStatus = POPUP_FIRST_LEVEL;
             if (topPopupOnly) mModule.showPopup(mPopup);
         }

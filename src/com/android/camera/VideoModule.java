@@ -228,22 +228,15 @@ public class VideoModule implements CameraModule,
 
     // The degrees of the device rotated clockwise from its natural orientation.
     private int mOrientation = OrientationEventListener.ORIENTATION_UNKNOWN;
-    // The orientation compensation for icons and dialogs. Ex: if the value
-    // is 90, the UI components should be rotated 90 degrees counter-clockwise.
-    private int mOrientationCompensation = 0;
-
-    // If mOrientationResetNeeded is set to be true, onOrientationChanged will reset
-    // the orientation of the on screen indicators to the current orientation compensation
-    // regardless of whether it's the same as the most recent orientation compensation
-    private boolean mOrientationResetNeeded;
-    // The orientation compensation when we start recording.
-    private int mOrientationCompensationAtRecordStart;
 
     private int mZoomValue;  // The current zoom value.
     private int mZoomMax;
     private List<Integer> mZoomRatios;
     private boolean mRestoreFlash;  // This is used to check if we need to restore the flash
                                     // status when going back from gallery.
+
+    private int mVideoWidth;
+    private int mVideoHeight;
 
     protected class CameraOpenThread extends Thread {
         @Override
@@ -415,6 +408,9 @@ public class VideoModule implements CameraModule,
             if (mReviewDoneButton != null) {
                 mGestures.addTouchReceiver((View) mReviewDoneButton);
             }
+            if (mReviewPlayButton != null) {
+                mGestures.addTouchReceiver((View) mReviewPlayButton);
+            }
         }
     }
 
@@ -487,9 +483,8 @@ public class VideoModule implements CameraModule,
         mQuickCapture = mActivity.getIntent().getBooleanExtra(EXTRA_QUICK_CAPTURE, false);
         mLocationManager = new LocationManager(mActivity, null);
 
-        // Initialize to true to ensure that the on-screen indicators get their
-        // orientation set in onOrientationChanged.
-        mOrientationResetNeeded = true;
+        setOrientationIndicator(0, false);
+        setDisplayOrientation();
 
         // Make sure preview is started.
         try {
@@ -592,31 +587,10 @@ public class VideoModule implements CameraModule,
             }
         }
 
-        // When the screen is unlocked, display rotation may change. Always
-        // calculate the up-to-date orientationCompensation.
-        int orientationCompensation =
-                (mOrientation + Util.getDisplayRotation(mActivity)) % 360;
-
-        if (mOrientationCompensation != orientationCompensation || mOrientationResetNeeded) {
-            mOrientationCompensation = orientationCompensation;
-            // Do not rotate the icons during recording because the video
-            // orientation is fixed after recording.
-            if (!mMediaRecorderRecording) {
-                setOrientationIndicator(mOrientationCompensation, true);
-                mOrientationResetNeeded = false;
-            }
-            setDisplayOrientation();
-        }
-
         // Show the toast after getting the first orientation changed.
         if (mHandler.hasMessages(SHOW_TAP_TO_SNAPSHOT_TOAST)) {
             mHandler.removeMessages(SHOW_TAP_TO_SNAPSHOT_TOAST);
             showTapToSnapshotToast();
-        }
-
-        // Rotate the pop-up if needed
-        if (mPopup != null) {
-            mPopup.setOrientation(mOrientationCompensation, true);
         }
     }
 
@@ -648,7 +622,7 @@ public class VideoModule implements CameraModule,
                 mLabelsLinearLayout.setOrientation(LinearLayout.HORIZONTAL);
             }
         }
-        mRecordingTimeRect.setOrientation(mOrientationCompensation, animation);
+        mRecordingTimeRect.setOrientation(0, animation);
     }
 
     private void startPlayVideoActivity() {
@@ -801,13 +775,13 @@ public class VideoModule implements CameraModule,
     private void getDesiredPreviewSize() {
         mParameters = mActivity.mCameraDevice.getParameters();
         if (ApiHelper.HAS_GET_SUPPORTED_VIDEO_SIZE) {
-            if (mParameters.getSupportedVideoSizes() == null || effectsActive()) {
+            if (mParameters.getSupportedVideoSizes() == null || (!mActivity.getResources().getBoolean(R.bool.usePreferredPreviewSizeForEffects) && effectsActive()) || Util.useProfileVideoSize()) {
                 mDesiredPreviewWidth = mProfile.videoFrameWidth;
                 mDesiredPreviewHeight = mProfile.videoFrameHeight;
             } else {  // Driver supports separates outputs for preview and video.
                 List<Size> sizes = mParameters.getSupportedPreviewSizes();
                 Size preferred = mParameters.getPreferredPreviewSizeForVideo();
-                if (preferred == null) {
+                if (mActivity.getResources().getBoolean(R.bool.ignorePreferredPreviewSizeForVideo) || preferred == null) {
                     preferred = sizes.get(0);
                 }
                 int product = preferred.width * preferred.height;
@@ -1116,6 +1090,18 @@ public class VideoModule implements CameraModule,
             case KeyEvent.KEYCODE_MENU:
                 if (mMediaRecorderRecording) return true;
                 break;
+            case KeyEvent.KEYCODE_VOLUME_UP:
+                if (mParameters.isZoomSupported() && mZoomRenderer != null) {
+                    int index = mZoomValue + 1;
+                    processZoomValueChanged(index);
+                }
+                return true;
+            case KeyEvent.KEYCODE_VOLUME_DOWN:
+                if (mParameters.isZoomSupported() && mZoomRenderer != null) {
+                    int index = mZoomValue - 1;
+                    processZoomValueChanged(index);
+                }
+                return true;
         }
         return false;
     }
@@ -1131,6 +1117,12 @@ public class VideoModule implements CameraModule,
                     onShutterButtonClick();
                 }
                 return true;
+            case KeyEvent.KEYCODE_VOLUME_UP:
+            case KeyEvent.KEYCODE_VOLUME_DOWN:
+                if (mParameters.isZoomSupported() && mZoomRenderer != null) {
+                    return true;
+                }
+                break;
         }
         return false;
     }
@@ -1204,6 +1196,9 @@ public class VideoModule implements CameraModule,
 
         Intent intent = mActivity.getIntent();
         Bundle myExtras = intent.getExtras();
+
+        mVideoWidth = mProfile.videoFrameWidth;
+        mVideoHeight = mProfile.videoFrameHeight;
 
         long requestedSizeLimit = 0;
         closeVideoFileDescriptor();
@@ -1280,7 +1275,6 @@ public class VideoModule implements CameraModule,
             }
         }
         mMediaRecorder.setOrientationHint(rotation);
-        mOrientationCompensationAtRecordStart = mOrientationCompensation;
 
         try {
             mMediaRecorder.prepare();
@@ -1342,8 +1336,6 @@ public class VideoModule implements CameraModule,
             orientation = mOrientation;
         }
         mEffectsRecorder.setOrientationHint(orientation);
-
-        mOrientationCompensationAtRecordStart = mOrientationCompensation;
 
         CameraScreenNail screenNail = (CameraScreenNail) mActivity.mCameraScreenNail;
         mEffectsRecorder.setPreviewSurfaceTexture(screenNail.getSurfaceTexture(),
@@ -1693,8 +1685,7 @@ public class VideoModule implements CameraModule,
             // it to match the UI orientation (and mirror if it is front-facing camera).
             CameraInfo[] info = CameraHolder.instance().getCameraInfo();
             boolean mirror = (info[mCameraId].facing == CameraInfo.CAMERA_FACING_FRONT);
-            bitmap = Util.rotateAndMirror(bitmap, -mOrientationCompensationAtRecordStart,
-                    mirror);
+            bitmap = Util.rotateAndMirror(bitmap, 0, mirror);
             mReviewImage.setImageBitmap(bitmap);
             mReviewImage.setVisibility(View.VISIBLE);
         }
@@ -1782,7 +1773,7 @@ public class VideoModule implements CameraModule,
             }
             // The orientation was fixed during video recording. Now make it
             // reflect the device orientation as video recording is stopped.
-            setOrientationIndicator(mOrientationCompensation, true);
+            setOrientationIndicator(0, true);
             keepScreenOnAwhile();
             if (shouldAddToMediaStoreNow) {
                 if (addVideoToMediaStore()) fail = true;
@@ -2294,7 +2285,9 @@ public class VideoModule implements CameraModule,
             // We need to restart the preview if preview size is changed.
             Size size = mParameters.getPreviewSize();
             if (size.width != mDesiredPreviewWidth
-                    || size.height != mDesiredPreviewHeight) {
+                    || size.height != mDesiredPreviewHeight
+                    || mProfile.videoFrameWidth != mVideoWidth
+                    || mProfile.videoFrameHeight != mVideoHeight) {
                 if (!effectsActive()) {
                     stopPreview();
                 } else {
@@ -2355,7 +2348,7 @@ public class VideoModule implements CameraModule,
 
         // From onResume
         initializeZoom();
-        setOrientationIndicator(mOrientationCompensation, false);
+        setOrientationIndicator(0, false);
 
         if (ApiHelper.HAS_SURFACE_TEXTURE) {
             // Start switch camera animation. Post a message because
@@ -2447,17 +2440,24 @@ public class VideoModule implements CameraModule,
         return false;
     }
 
-    private class ZoomChangeListener implements ZoomRenderer.OnZoomChangedListener {
-        @Override
-        public void onZoomValueChanged(int value) {
+    private void processZoomValueChanged(int index) {
+        if (index >= 0 && index <= mZoomMax) {
+            mZoomRenderer.setZoom(index);
             // Not useful to change zoom value when the activity is paused.
             if (mPaused) return;
-            mZoomValue = value;
+            mZoomValue = index;
             // Set zoom parameters asynchronously
             mParameters.setZoom(mZoomValue);
             mActivity.mCameraDevice.setParametersAsync(mParameters);
             Parameters p = mActivity.mCameraDevice.getParameters();
             mZoomRenderer.setZoomValue(mZoomRatios.get(p.getZoom()));
+        }
+    }
+
+    private class ZoomChangeListener implements ZoomRenderer.OnZoomChangedListener {
+        @Override
+        public void onZoomValueChanged(int index) {
+            processZoomValueChanged(index);
         }
 
         @Override
@@ -2514,7 +2514,7 @@ public class VideoModule implements CameraModule,
             return;
         }
 
-        if (!mPaused || mSnapshotInProgress || effectsActive()
+        if (mPaused || mSnapshotInProgress || effectsActive()
                 || !Util.isVideoSnapshotSupported(mParameters)) {
             return;
         }
@@ -2668,7 +2668,7 @@ public class VideoModule implements CameraModule,
     }
 
     private void showTapToSnapshotToast() {
-        new RotateTextToast(mActivity, R.string.video_snapshot_hint, mOrientationCompensation)
+        new RotateTextToast(mActivity, R.string.video_snapshot_hint, 0)
                 .show();
         // Clear the preference.
         Editor editor = mPreferences.edit();
@@ -2837,8 +2837,6 @@ public class VideoModule implements CameraModule,
         mBlocker.setVisibility(View.INVISIBLE);
         setShowMenu(false);
         mPopup = popup;
-        // Make sure popup is brought up with the right orientation
-        mPopup.setOrientation(mOrientationCompensation, false);
         mPopup.setVisibility(View.VISIBLE);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT,
                 LayoutParams.WRAP_CONTENT);

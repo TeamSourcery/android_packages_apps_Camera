@@ -142,11 +142,19 @@ public class Util {
     // For setting video size before recording starts
     private static boolean sEarlyVideoSize;
 
+    // For setting video desired profile size
+    private static boolean sProfileVideoSize;
+
     // Samsung ZSL mode
     private static boolean sEnableZSL;
 
     // Workaround for QC cameras with broken face detection on front camera
     private static boolean sNoFaceDetectOnFrontCamera;
+
+    // Software HDR based on manual shots with multiple exposure
+    private static boolean sEnableSoftwareHDR;
+    private static boolean sDoSoftwareHDRShot;
+    private static int sSoftwareHDRExposureSettleTime;
 
     private Util() {
     }
@@ -163,10 +171,16 @@ public class Util {
         // These come from the config, but are needed before parameters are set.
         sSamsungCamMode = context.getResources().getBoolean(R.bool.needsSamsungCamMode);
         sHTCCamMode = context.getResources().getBoolean(R.bool.needsHTCCamMode);
+        sProfileVideoSize = context.getResources().getBoolean(R.bool.useProfileVideoSize);
         sEarlyVideoSize = context.getResources().getBoolean(R.bool.needsEarlyVideoSize);
         sEnableZSL = context.getResources().getBoolean(R.bool.enableZSL);
         sNoFaceDetectOnFrontCamera = context.getResources().getBoolean(
                 R.bool.noFaceDetectOnFrontCamera);
+
+        sEnableSoftwareHDR = !context.getResources().getBoolean(R.bool.disableSoftwareHDR);
+        sSoftwareHDRExposureSettleTime = context.getResources().getInteger(
+                R.integer.softwareHDRExposureSettleTime);
+        sDoSoftwareHDRShot = false;
     }
 
     public static int dpToPixel(int dp) {
@@ -181,12 +195,32 @@ public class Util {
         return sSamsungCamMode;
     }
 
+    public static boolean useProfileVideoSize() {
+        return sProfileVideoSize;
+    }
+
     public static boolean needsEarlyVideoSize() {
         return sEarlyVideoSize;
     }
 
     public static boolean enableZSL() {
         return sEnableZSL;
+    }
+
+    public static boolean useSoftwareHDR() {
+        return sEnableSoftwareHDR;
+    }
+
+    public static void setDoSoftwareHDRShot(boolean enable) {
+        sDoSoftwareHDRShot = enable;
+    }
+
+    public static boolean getDoSoftwareHDRShot() {
+        return sDoSoftwareHDRShot;
+    }
+
+    public static int getSoftwareHDRExposureSettleTime() {
+        return sSoftwareHDRExposureSettleTime;
     }
 
     public static boolean noFaceDetectOnFrontCamera() {
