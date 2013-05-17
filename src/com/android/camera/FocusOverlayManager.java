@@ -94,7 +94,7 @@ public class FocusOverlayManager {
     private Handler mHandler;
     Listener mListener;
 
-    private int mFocusTime = 3000; // time after touch-to-focus
+    private int mFocusTime; // time after touch-to-focus
 
     public interface Listener {
         public void autoFocus();
@@ -439,7 +439,8 @@ public class FocusOverlayManager {
         if (mOverrideFocusMode != null) return mOverrideFocusMode;
         List<String> supportedFocusModes = mParameters.getSupportedFocusModes();
 
-        if (mFocusAreaSupported && mFocusArea != null) {
+        if (mFocusAreaSupported && mFocusArea != null
+                && !Util.noFocusModeChangeForTouch()) {
             // Always use autofocus in tap-to-focus.
             mFocusMode = Parameters.FOCUS_MODE_AUTO;
         } else {
